@@ -1,0 +1,34 @@
+---
+title: "Biofilm Traits"
+author: "Jay T. Lennon"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+header-includes:
+   - \usepackage{array}
+output: pdf_document
+geometry: margin=2.54cm
+---
+
+### Overview
+Use data from Wu et al. (2019) to test predictions for effects of residence time on biodiversity
+
+# Set up directories
+```{r}
+rm(list=ls())
+getwd()
+setwd("~/GitHub/WWTP")
+```
+
+# Load packages for writing figures
+```{r}
+require("png")
+```
+
+# Load data
+```{r}
+# OTUs (rows) = 96149; sites (columns) = 1188
+otu <- read.csv("data/wwtp.otu.csv", sep = ",", header=TRUE)
+
+# Metadata
+meta <- read.table("data/wwtp.metadata.txt", sep="\t", header=TRUE)
+
+```
