@@ -23,11 +23,11 @@ getwd()
 require("png")
 require("vegan")
 require("ggplot2")
-#install.packages("ggpmisc")
-#install.packages("cowplot")
 require("ggpubr")
 require("cowplot")
 require("ggpmisc")
+require("picante")
+require("AICcmodavg")
 ```
 
 #Set up figure themes
@@ -42,8 +42,6 @@ theme_set(theme_classic() +
         axis.text = element_text(size = 14),
         axis.text.x = element_text(margin = margin(t = 5)),
         axis.text.y = element_text(margin = margin(r = 5)),
-        #axis.line.x = element_line(size = 1),
-        #axis.line.y = element_line(size = 1),
         axis.line.x = element_blank(),
         axis.line.y = element_blank(),
         axis.ticks.x = element_line(size = 1),
@@ -67,7 +65,6 @@ meta <- read.table("data/wwtp.metadata.txt", sep="\t", header=TRUE)
 
 ```
 
-
 ```{r}
 #Calculate richness and evenness and add add to metadata
 meta$Richness <- NA
@@ -81,9 +78,9 @@ for(x in colnames(otu[,2:1187])){
 }
 
 #Generate metadata tables for each retention time measurement to remove NAs
-metadata_HTR_plant <- subset(meta, meta$HTR_plant != "NA")
-metadata_HTR_aeration <- subset(meta, meta$HTR_aeration_tank != "NA")
-metadata_SRT <- subset(meta, meta$SRT != "NA")
+meta.pHRT <- subset(meta, meta$HTR_plant != "NA")
+meta.aHRT <- subset(meta, meta$HTR_aeration_tank != "NA")
+meta.SRT <- subset(meta, meta$SRT != "NA")
 ```
 
 
@@ -91,119 +88,114 @@ metadata_SRT <- subset(meta, meta$SRT != "NA")
 ```{r}
 hemi<-ifelse(meta$Latitude>0,"North","South")
 meta<-data.frame(cbind(meta,hemi=hemi))
-ggplot(meta,aes(x=abs(meta$Latitude),y=meta$Richness))+
-  geom_point(size=2,alpha=0.6,aes(shape=meta$hemi,colour=meta$SRT))+
+ggplot(meta,aes(x=abs(meta$Latitude),y=(meta$Richness/1000)))+
+  geom_point(size=2,alpha=0.6)+
   geom_smooth(method = "lm",formula =y ~ poly(x, 2))+
-  #scale_colour_manual(values = c("North"="#ff0000","South"="#0000ff"))+
-  scale_shape_manual(values = c(19,0))+
-  scale_colour_gradientn(colours =c("#aa0000ff","#d40000ff","#ff0000ff","#ff5555ff","#ff8080ff","#ffaaaaff"),trans = 'reverse')+
   xlab("Absolute latitude") +
-  ylab("Phylogenetic diversity") +
+  ylab(expression(paste("OTU Richness(10"^3, ")"))) +
   stat_poly_eq(formula = y ~ poly(x,2, raw = TRUE), rr.digits = 2, parse = TRUE) +
   theme_bw() +
   theme(panel.grid.major = element_blank(),
         panel.grid.minor = element_blank())
-
-summary(lm(meta$Richness~I(abs(meta$Latitude))+I(meta$Latitude^2), data=meta))
+ggsave("./output/S.lat.pdf")
+ggsave("./output/S.lat.png")
 
 ```
 
 #Regression of Richness ~ Latitude and Residuals ~ SRT and HRT
 ```{r}
-all <- ggplot(meta, aes(y = meta$Richness, x = abs(meta$Latitude)))+
+
+#Regression of S and E on abs(Latitude)
+fit1_r <- lm(meta$Richness ~ abs(meta$Latitude))
+fit2_r <- lm(meta$Richness ~ poly(abs(meta$Latitude), 2, raw = TRUE))
+fit3_r <- lm(meta$Richness ~ poly(abs(meta$Latitude), 3, raw = TRUE))
+
+fit1_e <- lm(meta$Evenness ~ abs(meta$Latitude))
+fit2_e <- lm(meta$Evenness ~ poly(abs(meta$Latitude), 2, raw = TRUE))
+fit3_e <- lm(meta$Evenness ~ poly(abs(meta$Latitude), 3, raw = TRUE))
+
+anova(fit1_r, fit2_r, fit3_r)
+anova(fit1_e, fit2_e, fit3_e)
+
+S <- ggplot(meta, aes(y = meta$Richness, x = abs(meta$Latitude)))+
   geom_point() +
   geom_smooth(method = "lm", formula = y ~ poly(x, 2, raw = TRUE), col = "red") +
-  xlab("abs(latitude") +
-  ylab("richness") +
+  xlab("abs(latitude)") +
+  ylab("S") +
   stat_poly_eq(formula = y ~ poly(x,2, raw = TRUE), rr.digits = 2, parse = TRUE)
-ggsave("./output/wwtp_lat_all.pdf")
+ggsave("./output/all.latitude.S.pdf")
+ggsave("./output/all.latitude.S.png")
 
-hrt <- ggplot(metadata_HTR_aeration, aes(y = log(metadata_HTR_aeration$Richness, 10), x = abs(metadata_HTR_aeration$Latitude))) + 
+E <- ggplot(meta, aes(y = meta$Evenness, x = abs(meta$Latitude)))+
+  geom_point() +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2, raw = TRUE), col = "red") +
+  xlab("abs(latitude)") +
+  ylab("E") +
+  stat_poly_eq(formula = y ~ poly(x,2, raw = TRUE), rr.digits = 2, parse = TRUE)
+ggsave("./output/all.latitude.E.pdf")
+ggsave("./output/all.latitude.E.png")
+
+
+#Subset of HRT data - S on abs(Lat) and res_S on aHRT
+
+fit1_hrt_r <- lm(meta.aHRT$Richness ~ abs(meta.aHRT$Latitude))
+fit2_hrt_r <- lm(meta.aHRT$Richness ~ poly(abs(meta.aHRT$Latitude), 2, raw = TRUE))
+anova(fit1_hrt_r, fit2_hrt_r)
+
+meta.aHRT$Residuals <- fit2_hrt_r$residuals
+fit1_hrt_rr <- lm(meta.aHRT$Residuals ~ log(meta.aHRT$HTR_aeration_tank,10))
+fit2_hrt_rr <- lm(meta.aHRT$Residuals ~ poly(log(meta.aHRT$HTR_aeration_tank,10), 2, raw = TRUE))
+anova(fit1_hrt_rr, fit2_hrt_rr)
+
+hrt_S <- ggplot(meta.aHRT, aes(y = (meta.aHRT$Richness/1000), x = abs(meta.aHRT$Latitude)))+
   geom_point() + 
-  geom_smooth(method = "lm", formula = y ~ poly(x, 2, raw = TRUE), col = "red") + 
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2, raw=TRUE), col = "red") + 
   xlab("abs(latitude)") + 
-  ylab("log(richness)") +
-  stat_poly_eq(formula = y ~ poly(x,2, raw = TRUE), rr.digits = 2, parse = TRUE)
-ggsave("./output/wwtp_lat_aHRT.pdf")
+  ylab("OTU richness (10^3)")+
+  stat_poly_eq(formula = y ~ poly(x, 2, raw = TRUE), rr.digits = 2, parse = TRUE)
+ggsave("./output/ahrt.latitude.S.pdf")
+ggsave("./output/ahrt.latitude.S.png")
 
-hrt_model <- lm(log(metadata_HTR_aeration$Richness, 10) ~ poly((abs(metadata_HTR_aeration$Latitude)), 2, raw=TRUE))
-metadata_HTR_aeration$Residuals <- hrt_model$residuals
-
-hrt_res <- ggplot(metadata_HTR_aeration, aes(y = metadata_HTR_aeration$Residuals, x = log(metadata_HTR_aeration$HTR_aeration_tank, 10))) +
+hrt_Sres <- ggplot(meta.aHRT, aes(y = meta.aHRT$Residuals, x = log(meta.aHRT$HTR_aeration_tank, 10))) +
   geom_point() +
   geom_smooth(method = "lm", formula = y~ poly(x,2, raw = TRUE), col = "red") +
   xlab("log(aeration HRT)") +
   ylab("Residuals") +
   stat_poly_eq(formula = y ~ poly(x,2, raw = TRUE), rr.digits = 2, parse = TRUE)
-ggsave("./output/wwtp_res_aHRT.pdf")
+ggsave("./output/ahrt.ahrt.S_residuals.pdf")
+ggsave("./output/ahrt.ahrt.S_residuals.png")
 
-srt <- ggplot(metadata_SRT, aes(y = log(metadata_SRT$Richness, 10), x = abs(metadata_SRT$Latitude))) + 
-  geom_point() + 
-  geom_smooth(method = "lm", formula = y ~ poly(x, 2, raw = TRUE), col = "red") + 
-  xlab("abs(latitude)") + 
-  ylab("log(richness)") +
-  stat_poly_eq(formula = y ~ poly(x,2, raw = TRUE), rr.digits = 2, parse = TRUE)
-ggsave("./output/wwtp_lat_SRT.pdf")
-
-srt_model <- lm(log(metadata_SRT$Richness, 10) ~ poly((abs(metadata_SRT$Latitude)), 2, raw=TRUE))
-metadata_SRT$Residuals <- srt_model$residuals
-
-srt_res <- ggplot(metadata_SRT, aes(y = metadata_SRT$Residuals, x = log(metadata_SRT$SRT, 10))) +
-  geom_point() +
-  geom_smooth(method = "lm", formula = y~ poly(x,2, raw = TRUE), col = "red") +
-  xlab("log(SRT)") +
-  ylab("Residuals") +
-  stat_poly_eq(formula = y ~ poly(x,2, raw = TRUE), rr.digits = 2, parse = TRUE)
-ggsave("./output/wwtp_res_SRT.pdf")
-
-plot_grid(hrt, hrt_res, srt, srt_res, labels = c("A", "B", "C", "D"), ncol = 2, nrow = 2)
-ggsave("./output/HRT_SRT.pdf")
-```
-
-#Regression for hrt and srt on evenness
-```{r}
-meta$Inv_Evenness <- NA
-for(x in colnames(otu[,2:1187])){
-  meta$Inv_Evenness[meta$Sample_ID == x] <- diversity(na.omit(otu[,as.character(x)]), "inv")
-}
-metadata_HTR_aeration <- subset(meta, meta$HTR_aeration_tank != "NA")
-
-hrt_res <- ggplot(metadata_HTR_aeration, aes(y = metadata_HTR_aeration$Evenness, x = log(metadata_HTR_aeration$HTR_aeration_tank, 10))) +
-  geom_point() +
-  geom_smooth(method = "lm", formula = y~ poly(x,2, raw = TRUE), col = "red") +
-  xlab("log(aeration HRT)") +
-  ylab("Evenness") +
-  stat_poly_eq(formula = y ~ poly(x,2, raw = TRUE), rr.digits = 2, parse = TRUE)
-ggsave("./output/wwtp_HRT_E.pdf")
-
-hrt_res <- ggplot(metadata_HTR_aeration, aes(y = metadata_HTR_aeration$Inv_Evenness, x = log(metadata_HTR_aeration$HTR_aeration_tank, 10))) +
-  geom_point() +
-  geom_smooth(method = "lm", formula = y~ poly(x,2, raw = TRUE), col = "red") +
-  xlab("log(aeration HRT)") +
-  ylab("Evenness") +
-  stat_poly_eq(formula = y ~ poly(x,2, raw = TRUE), rr.digits = 2, parse = TRUE)
-ggsave("./output/wwtp_HRT_IE.pdf")
+ggarrange(hrt_S, hrt_Sres, labels = c("A","B"))
+ggsave("./output/ahrt_S_residuals.pdf", width = 10, height = 5)
+ggsave("./output/ahrt_S_residuals.png", width = 10, height = 5)
 ```
 #Generate figure of richness and evenness with lowess regression for all three RT types 
 ```{r}
-png(filename="output/wwtp_div_rt.png", width = 800, height = 800, res = 96*2)
-par(mfrow = c(2,3))
+S_aHRT <- ggplot(meta.aHRT, aes(y = meta.aHRT$Richness, x = log(meta.aHRT$HTR_aeration_tank)))+
+  geom_point() + 
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2, raw=TRUE), col = "red") + 
+  xlab("log(aeration_HRT)") + 
+  ylab("S")+
+  stat_poly_eq(formula = y ~ poly(x, 2, raw = TRUE), rr.digits = 2, parse = TRUE)
+ggsave("./output/ahrt.S.pdf")
+ggsave("./output/ahrt.S.png")
 
-plot(log(metadata_HTR_plant$Richness) ~ log(metadata_HTR_plant$HTR_plant), ylab = "log(S)", xlab = expression(paste("log(", tau, ")")), main = "Plant Hydrologic\nRetention Time")
-lines(lowess(log(metadata_HTR_plant$Richness) ~ log(metadata_HTR_plant$HTR_plant)), col = "red")
-plot(log(metadata_HTR_aeration$Richness) ~ log(metadata_HTR_aeration$HTR_aeration_tank), ylab = "log(S)", xlab = expression(paste("log(", tau, ")")), main = "Aeration Tank\nHydrologic Retention Time")
-lines(lowess(log(metadata_HTR_aeration$Richness) ~ log(metadata_HTR_aeration$HTR_aeration_tank)), col = "red")
-plot(log(metadata_SRT$Richness) ~ log(metadata_SRT$SRT), ylab = "log(S)", xlab = expression(paste("log(", tau, ")")), main = "Solid Retention Time")
-lines(lowess(log(metadata_SRT$Richness) ~ log(metadata_SRT$SRT)), col = "red")
+S_pHRT <- ggplot(meta.pHRT, aes(y = meta.pHRT$Richness, x = log(meta.pHRT$HTR_plant)))+
+  geom_point() + 
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2, raw=TRUE), col = "red") + 
+  xlab("log(plant_HRT)") + 
+  ylab("S")+
+  stat_poly_eq(formula = y ~ poly(x, 2, raw = TRUE), rr.digits = 2, parse = TRUE)
+ggsave("./output/phrt.S.pdf")
+ggsave("./output/phrt.S.png")
 
-plot(metadata_HTR_plant$Evenness ~ log(metadata_HTR_plant$HTR_plant), ylab = "E", xlab = expression(paste("log(", tau, ")")))
-lines(lowess(metadata_HTR_plant$Evenness~log(metadata_HTR_plant$HTR_plant)), col = "red")
-plot(metadata_HTR_aeration$Evenness ~ log(metadata_HTR_aeration$HTR_aeration_tank), ylab = "E", xlab = expression(paste("log(", tau, ")")))
-lines(lowess(metadata_HTR_aeration$Evenness~log(metadata_HTR_aeration$HTR_aeration_tank)), col = "red")
-plot(metadata_SRT$Evenness ~ log(metadata_SRT$SRT), ylab = "E", xlab = expression(paste("log(", tau, ")")))
-lines(lowess(metadata_SRT$Evenness ~ log(metadata_SRT$SRT)), col = "red")
-
-dev.off()
-graphics.off()
+S_SRT <- ggplot(meta.SRT, aes(y = meta.SRT$Richness, x = log(meta.SRT$SRT)))+
+  geom_point() + 
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2, raw=TRUE), col = "red") + 
+  xlab("log(SRT)") + 
+  ylab("S")+
+  stat_poly_eq(formula = y ~ poly(x, 2, raw = TRUE), rr.digits = 2, parse = TRUE)
+ggsave("./output/srt.S.pdf")
+ggsave("./output/srt.S.png")
 
 ```
